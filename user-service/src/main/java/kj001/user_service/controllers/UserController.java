@@ -27,4 +27,14 @@ public class UserController {
         }
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found or password mismatch.");
     }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteOneUser(@PathVariable long id)  {
+        UserResponseDTO deleteUser = userService.deleteUser(id);
+        if (deleteUser != null) {
+            return ResponseEntity.ok("delete User successfull...");
+        }else {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found with id : "+id);
+        }
+    }
 }

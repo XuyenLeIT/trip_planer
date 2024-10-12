@@ -1,16 +1,18 @@
 package kj001.user_service.controllers;
 
-import kj001.user_service.dtos.CreateUserDTO;
-import kj001.user_service.dtos.LoginRequestDTO;
-import kj001.user_service.dtos.UserResponseDTO;
+import jakarta.mail.MessagingException;
+import jakarta.validation.Valid;
+import kj001.user_service.dtos.*;
+import kj001.user_service.helpers.ApiResponse;
 import kj001.user_service.models.User;
 import kj001.user_service.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.io.UnsupportedEncodingException;
 import java.util.Optional;
 
 @RestController
@@ -20,18 +22,91 @@ public class AuthController {
     private final UserService userService;
 
     @PostMapping("/register")
-    public ResponseEntity<?> createOneUser(@RequestBody CreateUserDTO createUserDTO){
+    public ResponseEntity<?> createOneUser(@RequestBody CreateUserDTO createUserDTO) {
         User createdUser = userService.createUser(createUserDTO);
         return ResponseEntity.ok(createdUser);
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody LoginRequestDTO loginRequestDTO){
+    public ResponseEntity<?> login(@RequestBody LoginRequestDTO loginRequestDTO) {
         Optional<UserResponseDTO> user = userService.login(loginRequestDTO);
-        if(user.isPresent()){
+        if (user.isPresent()) {
             return ResponseEntity.ok(user.get());
         }
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found or password mismatch.");
     }
 
+    @PostMapping("/change-pass")
+    public ResponseEntity<?> changePass(@Valid
+                                        @RequestBody ChangePasswordRequestDTO changePasswordRequestDTO,
+                                        BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(bindingResult));
+        }
+        try {
+            if (userService.changePassword(changePasswordRequestDTO)) {
+                return ResponseEntity.ok(ApiResponse.success(true, "Password changed successfully"));
+            } else {
+                return ResponseEntity.badRequest().body(ApiResponse.badRequest(bindingResult));
+            }
+        } catch (Exception ex) {
+            if (ex.getMessage().contains("UserNotFound")) {
+                return ResponseEntity.status(404).body(ApiResponse.notfound("User with the given email does not exist"));
+            } else if (ex.getMessage().contains("OldPasswordDoesNotMatch")) {
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("Old password does not match"));
+            } else if (ex.getMessage().contains("NewPasswordMustBeDifferenceFormOldPassword")) {
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("New password must be difference old pass"));
+            } else if (ex.getMessage().contains("ConfirmPasswordMustBeEqualNewPassword")) {
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("Confirm password does not match new pass"));
+            } else {
+                return ResponseEntity.status(500).body(ApiResponse.errorServer("Unexpected error: " + ex.getMessage()));
+            }
+        }
+    }
+
+    @PostMapping("/send-otp")
+    public ResponseEntity<?> sendOtp(@Valid @RequestBody
+                                     SendOtpRequestDTO sendOtpRequestDTO, BindingResult bindingResult) throws MessagingException, UnsupportedEncodingException {
+        if (bindingResult.hasErrors()) {
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(bindingResult));
+        }
+        try {
+            userService.sendOTP(sendOtpRequestDTO);
+            return ResponseEntity.ok(ApiResponse.success(true, "OTP sent successfully"));
+        } catch (RuntimeException ex) {
+            if (ex.getMessage().contains("UserNotFound")) {
+                return ResponseEntity.status(404).body(ApiResponse.notfound("User with the given email does not exist"));
+            }else  if (ex.getMessage().contains("LimitOTPDay")) {
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("OTP request send limit Today"));
+            }
+        } catch (MessagingException | UnsupportedEncodingException e) {
+            // Handle messaging exceptions
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.errorServer("Unexpected error: " + e.getMessage()));
+        }
+        return ResponseEntity.status(400).body(ApiResponse.badRequest("Failed to send OTP"));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> sendOtp(@Valid @RequestBody
+                                     ResetPasswordRequestDTO resetPasswordRequestDTO, BindingResult bindingResult) throws MessagingException, UnsupportedEncodingException {
+        if (bindingResult.hasErrors()) {
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(bindingResult));
+        }
+        try {
+            userService.resetPassword(resetPasswordRequestDTO);
+            return ResponseEntity.ok(ApiResponse.success(true, "Reset Password successfully"));
+        } catch (RuntimeException ex) {
+            if (ex.getMessage().contains("UserNotFound")) {
+                return ResponseEntity.status(404).body(ApiResponse.notfound("User with the given email does not exist"));
+            }else  if (ex.getMessage().contains("OTPHasExpired")) {
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("OTP has expired"));
+            }else  if (ex.getMessage().contains("OTPIsUsed")) {
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("OTP has already been used"));
+            }
+        } catch (MessagingException | UnsupportedEncodingException e) {
+            // Handle messaging exceptions
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.errorServer("Unexpected error: " + e.getMessage()));
+        }
+        return ResponseEntity.status(400).body(ApiResponse.badRequest("Failed to reset"));
+    }
 }
