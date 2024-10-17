@@ -5,6 +5,7 @@ import kj001.user_service.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,5 +21,11 @@ public class ManagerController {
     public ResponseEntity<?> getAllUser(){
         List<UserResponseDTO> users =  userService.getAllUser();
         return ResponseEntity.ok(users);
+    }
+
+    @GetMapping("/users/{id}")
+    public ResponseEntity<?> getUserById(@PathVariable long id){
+        UserResponseDTO userResponseDTO = userService.getOneUser(id);
+        return ResponseEntity.ok(userResponseDTO);
     }
 }

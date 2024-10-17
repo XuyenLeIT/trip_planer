@@ -1,6 +1,5 @@
 package kj001.user_service.service;
 
-import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.mail.MessagingException;
 import kj001.user_service.dtos.*;
@@ -17,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 
-import javax.swing.text.html.Option;
 import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -50,12 +48,82 @@ public class UserService {
                 .collect(Collectors.toList());
     }
 
+    //Phương thức lấy 1 user
+    public UserResponseDTO getOneUser(Long userId) {
+        Optional<User> existingUser = userRepository.findById(userId);
+        if (existingUser.isPresent()) {
+            User user = existingUser.get();
+            //Chuyển đổi User sang UserResponseDTO
+            UserResponseDTO userResponseDTO = objectMapper.convertValue(user, UserResponseDTO.class);
+
+            //Lấy thông tin từ profile
+            Profile profile = user.getProfile();
+            if (profile != null) {
+                ProfileDTO profileDTO = new ProfileDTO();
+                profileDTO.setId(profile.getId());
+                profileDTO.setHobbies(profile.getHobbies());
+                profileDTO.setAddress(profile.getAddress());
+                profileDTO.setAge(profile.getAge());
+                profileDTO.setAvatar(profile.getAvatar());
+                profileDTO.setDescription(profile.getDescription());
+                profileDTO.setMaritalStatus(profile.getMaritalStatus());
+
+                //Thêm ProfileDTO và UserResponseDTO
+                userResponseDTO.setProfileDTO(profileDTO);
+            }
+            return userResponseDTO;
+        }
+        return null;
+    }
+
     //Phương thức Register User
-    public User createUser(CreateUserDTO createUserDTO) {
+    public UserResponseDTO createUser(CreateUserDTO createUserDTO) throws MessagingException, UnsupportedEncodingException {
+        Optional<User> existingUser = userRepository.findByEmail(createUserDTO.getEmail());
+        if (existingUser.isPresent()) {
+            if (existingUser.get().isActive()) {
+                throw new RuntimeException("EmailAlready");
+            }
+
+        }
+        if (!createUserDTO.getPassword().equals(createUserDTO.getConfirmPassword())) {
+            throw new RuntimeException("ConfirmEqualNewPassword");
+        }
         User user = objectMapper.convertValue(createUserDTO, User.class);  //Chuyển đổi đối tượng createUserDTO<dữ liệu người dùng nhập vào> sang User để lưu vào dữ liệu . Điều này có nghĩa là dữ liệu createUserDTO sẽ được sao chép vào User và lưu vào database vì DTO sẽ không trực tiếp lưu vào DB
         user.setPassword(passwordEncoder.encode(createUserDTO.getPassword()));  //Mã hóa password
+        String otpCode = generateOtp();
+        user.setOtpCode(otpCode);
         user.setCreateAt(LocalDateTime.now());    //Thiết lập time tạo user
-        return userRepository.save(user);
+        LocalDateTime expiryTime = LocalDateTime.now().plusMinutes(OTP_EXPIRATION_MINUTES);   //Set Thời gian hết hạn
+        user.setExpiryTime(expiryTime);
+        userRepository.save(user);
+        UserResponseDTO userResponseDTO = objectMapper.convertValue(user, UserResponseDTO.class);
+
+        //Logic gửi mail khi user đăng ký tài khoản
+        MailEntity mailEntity = new MailEntity();
+        mailEntity.setEmail(createUserDTO.getEmail());
+        mailEntity.setSubject("Verify Account");
+        mailEntity.setContent("Your OTP is code is: " + otpCode);
+        mailResetPass.sendMailOTP(mailEntity);
+        return userResponseDTO;
+    }
+
+    //VerifyAccount
+    public boolean verifyAccount(String email, String code) {
+        Optional<User> user = userRepository.findByEmailAndOtpCode(email,code);
+        if (user.isPresent()) {
+            //Kiểm tra OTP đã hết hạn chưa
+            if (user.get().getExpiryTime().isBefore(LocalDateTime.now())) {
+                throw new RuntimeException("OTPHasExpired");
+            }
+            user.get().setActive(true);
+            userRepository.save(user.get());
+
+            // Xóa các bản ghi khác có cùng email nhưng không được kích hoạt
+            userRepository.deleteInactiveUsersByEmail(email, user.get().getId());
+            return true;
+        }
+        return false;
+
     }
 
     //Phương thức Login
@@ -67,7 +135,7 @@ public class UserService {
         return Optional.empty();
 
     }
-
+    
     //Phương thức Update User
     public Optional<UserResponseDTO> updateUser(Long userId, UserAndProfileUpdateDTO userAndProfileUpdateDTO) throws IOException {
         Optional<User> existingUser = userRepository.findById(userId);
@@ -113,6 +181,7 @@ public class UserService {
         return Optional.empty();
     }
 
+    //Phương thức delete User
     public UserResponseDTO deleteUser(long userId) {
         Optional<User> existingUser = userRepository.findById(userId);
         if (existingUser.isPresent()) {
@@ -138,6 +207,7 @@ public class UserService {
         return userResponseDTO;
     }
 
+    //Phương thức Change Password
     public boolean changePassword(ChangePasswordRequestDTO changePasswordRequestDTO) {
         User user = userRepository.findByEmail(changePasswordRequestDTO.getEmail()).orElseThrow(() -> new RuntimeException("UserNotFound"));
 
@@ -160,8 +230,10 @@ public class UserService {
         return true;
     }
 
+    //Phương thức gửi OTP
     public void sendOTP(SendOtpRequestDTO sendOtpRequestDTO) throws MessagingException, UnsupportedEncodingException {
         userRepository.findByEmail(sendOtpRequestDTO.getEmail()).orElseThrow(() -> new RuntimeException("UserNotFound"));
+
         String otpCode = generateOtp();
         //Đặt thời gian hết hạn của OTP là 5 phút
         LocalDateTime expiryTime = LocalDateTime.now().plusMinutes(OTP_EXPIRATION_MINUTES);
@@ -183,7 +255,7 @@ public class UserService {
         otp.setSubject("Reset Password OTP");
         otp.setContent("Your OTP code is " + otpCode + ".It expries in 5 minutes");
         otp.setUsed(false);
-        otp.setSendAttemps(existingOTP.map(otp1 -> otp1.getSendAttemps() + 1).orElse(1));    //Số lần gửi OTP
+        otp.setSendAttemps(existingOTP.map(otp1 -> otp1.getSendAttemps() + 1).orElse(1));    //Số lần gửi OTP sẽ được tăng lên
         otp.setExpiryTime(expiryTime);
         otp.setLastSend(LocalDateTime.now());
         otpRepository.save(otp);
@@ -193,7 +265,7 @@ public class UserService {
         mailEntity.setEmail(sendOtpRequestDTO.getEmail());
         mailEntity.setSubject(otp.getSubject());
         mailEntity.setContent(otp.getContent());
-        mailResetPass.sendResetPass(mailEntity);
+        mailResetPass.sendMailOTP(mailEntity);
     }
 
     //phương thức tạo mã OTP ngẫu nhiên
@@ -205,7 +277,7 @@ public class UserService {
     }
 
     //Logic ResetPassword
-    public boolean resetPassword(ResetPasswordRequestDTO resetPasswordRequestDTO) throws MessagingException, UnsupportedEncodingException {
+    public boolean resetPassword(VerifyOTPRequestDTO resetPasswordRequestDTO) throws MessagingException, UnsupportedEncodingException {
         //Tìm OTP theo email và mã OTP
         OTP otp = otpRepository.findByEmailAndOtpCode(resetPasswordRequestDTO.getEmail(),
                 resetPasswordRequestDTO.getOtpCode()).orElseThrow(() -> new RuntimeException("UserNotFound"));
@@ -233,7 +305,7 @@ public class UserService {
         mailEntity.setEmail(resetPasswordRequestDTO.getEmail());
         mailEntity.setSubject("Reset password OTP");
         mailEntity.setContent("Your password id: " + newPassword);
-        mailResetPass.sendResetPass(mailEntity);
+        mailResetPass.sendMailOTP(mailEntity);
         return true;
     }
 

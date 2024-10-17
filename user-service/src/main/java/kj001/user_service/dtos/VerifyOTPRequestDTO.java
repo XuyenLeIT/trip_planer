@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
-public class ResetPasswordRequestDTO {
+public class VerifyOTPRequestDTO {
     @NotNull
     @Email
     private String email;

@@ -19,7 +19,7 @@ public class MailResetPass {
 
     @Value("spring.mail.username")
     private String sender;
-    public void sendResetPass(MailEntity mailEntity) throws MessagingException, UnsupportedEncodingException {
+    public void sendMailOTP(MailEntity mailEntity) throws MessagingException, UnsupportedEncodingException {
         MimeMessage mimeMessage = javaMailSender.createMimeMessage();
         MimeMessageHelper mimeMessageHelper = new MimeMessageHelper(mimeMessage, true);
         mimeMessageHelper.setFrom(new InternetAddress(sender, "Trip Planner"));

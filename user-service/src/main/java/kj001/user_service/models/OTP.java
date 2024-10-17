@@ -27,5 +27,5 @@ public class OTP {
 
     //Limit số lần gửi Otp trong ngày
     private int sendAttemps;
-    private LocalDateTime lastSend;
+    private LocalDateTime lastSend;     //OTP được gửi cuối cùng
 }

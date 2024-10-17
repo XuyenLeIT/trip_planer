@@ -4,7 +4,6 @@ import jakarta.mail.MessagingException;
 import jakarta.validation.Valid;
 import kj001.user_service.dtos.*;
 import kj001.user_service.helpers.ApiResponse;
-import kj001.user_service.models.User;
 import kj001.user_service.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -22,9 +21,44 @@ public class AuthController {
     private final UserService userService;
 
     @PostMapping("/register")
-    public ResponseEntity<?> createOneUser(@RequestBody CreateUserDTO createUserDTO) {
-        User createdUser = userService.createUser(createUserDTO);
-        return ResponseEntity.ok(createdUser);
+    public ResponseEntity<?> createOneUser(@Valid @RequestBody CreateUserDTO createUserDTO , BindingResult bindingResult) {
+        // kiểm tra lỗi validation
+        if(bindingResult.hasErrors()){
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest(bindingResult));
+        }
+        try {
+            UserResponseDTO createdUser  = userService.createUser(createUserDTO);
+            return ResponseEntity.status(201).body(ApiResponse.created(createdUser, "User register successfully."));
+        }catch (RuntimeException ex){
+            if(ex.getMessage().contains("EmailAlready")){
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("Email is already in use"));
+            }else if(ex.getMessage().contains("ConfirmEqualNewPassword")){
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("Confirm Password does not match new pass"));
+            }
+            else{
+                return ResponseEntity.status(500).body(ApiResponse.errorServer("Unexpected error: "+ ex.getMessage()));
+            }
+        } catch (MessagingException | UnsupportedEncodingException e) {
+            return ResponseEntity.status(500).body(ApiResponse.errorServer("Unexpected error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/verify-account/{email}/{code}")
+    public ResponseEntity<?> verifyAccount(@PathVariable String email,@PathVariable String code) {
+       try {
+           Boolean checkVerify = userService.verifyAccount(email, code);
+           if (checkVerify) {
+               return ResponseEntity.ok(true);
+           }
+       } catch (RuntimeException ex) {
+           if (ex.getMessage().contains("OTPHasExpired")) {
+               return ResponseEntity.status(400).body(ApiResponse.badRequest("OTP has expired"));
+           }else   {
+               return ResponseEntity.status(500).body(ApiResponse.errorServer("Unexpected error: " + ex.getMessage()));
+           }
+       }
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found");
     }
 
     @PostMapping("/login")
@@ -87,8 +121,8 @@ public class AuthController {
     }
 
     @PostMapping("/reset-password")
-    public ResponseEntity<?> sendOtp(@Valid @RequestBody
-                                     ResetPasswordRequestDTO resetPasswordRequestDTO, BindingResult bindingResult) throws MessagingException, UnsupportedEncodingException {
+    public ResponseEntity<?> resetPassword(@Valid @RequestBody
+                                           VerifyOTPRequestDTO resetPasswordRequestDTO, BindingResult bindingResult) throws MessagingException, UnsupportedEncodingException {
         if (bindingResult.hasErrors()) {
             return ResponseEntity.badRequest().body(ApiResponse.badRequest(bindingResult));
         }

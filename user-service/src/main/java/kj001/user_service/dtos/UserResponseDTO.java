@@ -18,7 +18,7 @@ public class UserResponseDTO {
     @Column(unique=true, nullable = false)
     private String email;
 
-    private boolean status;
+    private boolean isActive;
     private String phone;
 
     @Enumerated(EnumType.STRING)

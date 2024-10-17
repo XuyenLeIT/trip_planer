@@ -32,7 +32,7 @@ public class UserController {
     public ResponseEntity<?> deleteOneUser(@PathVariable long id)  {
         UserResponseDTO deleteUser = userService.deleteUser(id);
         if (deleteUser != null) {
-            return ResponseEntity.ok("delete User successfull...");
+            return ResponseEntity.ok("delete User successfully...");
         }else {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found with id : "+id);
         }

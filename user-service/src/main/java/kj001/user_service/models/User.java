@@ -20,12 +20,15 @@ public class User {
     @Column(nullable = false)
     private String fullName;
 
-    @Column(unique=true, nullable = false)
+    @Column(nullable = false)
     private String email;
 
     @Column(nullable = false)
     private String password;
-    private boolean status;
+    private boolean isBanded = false;    //Ban Account
+    private boolean isActive = false;    //Trang thái đã được xác nhân tài khoản chưa
+    private String otpCode;
+    private LocalDateTime expiryTime;
     private String phone;
 
     @Enumerated(EnumType.STRING)
