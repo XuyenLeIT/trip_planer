@@ -37,8 +37,8 @@ public class User {
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
     private Profile profile;
 
-    private LocalDateTime createAt;
-
     @Enumerated(EnumType.STRING)
     private Gender gender;
+
+    private LocalDateTime createAt;
 }

@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.Optional;
 
@@ -30,15 +31,17 @@ public class AuthController {
             UserResponseDTO createdUser  = userService.createUser(createUserDTO);
             return ResponseEntity.status(201).body(ApiResponse.created(createdUser, "User register successfully."));
         }catch (RuntimeException ex){
-            if(ex.getMessage().contains("EmailAlready")){
-                return ResponseEntity.status(400).body(ApiResponse.badRequest("Email is already in use"));
+            if(ex.getMessage().contains("UserActiveExists")){
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("User active exists"));
+            }else if(ex.getMessage().contains("EmailAlready3TimeOfDay")){
+                return ResponseEntity.status(400).body(ApiResponse.badRequest("Email Already used 3 Time Of Day"));
             }else if(ex.getMessage().contains("ConfirmEqualNewPassword")){
                 return ResponseEntity.status(400).body(ApiResponse.badRequest("Confirm Password does not match new pass"));
             }
             else{
                 return ResponseEntity.status(500).body(ApiResponse.errorServer("Unexpected error: "+ ex.getMessage()));
             }
-        } catch (MessagingException | UnsupportedEncodingException e) {
+        } catch (MessagingException | IOException e) {
             return ResponseEntity.status(500).body(ApiResponse.errorServer("Unexpected error: " + e.getMessage()));
         }
     }
@@ -53,7 +56,9 @@ public class AuthController {
        } catch (RuntimeException ex) {
            if (ex.getMessage().contains("OTPHasExpired")) {
                return ResponseEntity.status(400).body(ApiResponse.badRequest("OTP has expired"));
-           }else   {
+           }else if (ex.getMessage().contains("OTPVERIFIED")) {
+               return ResponseEntity.status(400).body(ApiResponse.badRequest("Account has verified"));
+           } else   {
                return ResponseEntity.status(500).body(ApiResponse.errorServer("Unexpected error: " + ex.getMessage()));
            }
        }
@@ -69,6 +74,8 @@ public class AuthController {
         }
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found or password mismatch.");
     }
+
+
 
     @PostMapping("/change-pass")
     public ResponseEntity<?> changePass(@Valid

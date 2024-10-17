@@ -2,6 +2,7 @@ package kj001.user_service.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.mail.MessagingException;
+import jakarta.transaction.Transactional;
 import kj001.user_service.dtos.*;
 import kj001.user_service.helpers.FileUpload;
 import kj001.user_service.models.OTP;
@@ -19,6 +20,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -77,20 +80,36 @@ public class UserService {
     }
 
     //Phương thức Register User
-    public UserResponseDTO createUser(CreateUserDTO createUserDTO) throws MessagingException, UnsupportedEncodingException {
-        Optional<User> existingUser = userRepository.findByEmail(createUserDTO.getEmail());
-        if (existingUser.isPresent()) {
-            if (existingUser.get().isActive()) {
-                throw new RuntimeException("EmailAlready");
-            }
-
+    @Transactional
+    public UserResponseDTO createUser(CreateUserDTO createUserDTO) throws MessagingException, IOException {
+        //Kiểm tra nếu có bất kỳ user nào với email đang acive
+        List<User> existingActiveUsers = userRepository.findByEmailAndIsActiveTrue(createUserDTO.getEmail());
+        if (!existingActiveUsers.isEmpty()) {
+            throw new RuntimeException("UserActiveExists");
         }
+        //Lấy thời gian hiện tại
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startDay = now.toLocalDate().atStartOfDay();
+        LocalDateTime endDay = now.toLocalDate().atTime(23, 59, 59);
+
+        //Tìm người dùng có cùng email và đã đăng ký trong ngày
+        List<User> existingUserToday = userRepository
+                .findByEmailAndRegistrationDateBetween(createUserDTO.getEmail(), startDay, endDay);
+        //Kiểm tra với email đó trong ngày đã đăng ký mấy lần
+        if (existingUserToday.size() >= 3) {
+            throw new RuntimeException("EmailAlready3TimeOfDay");
+        }
+        //Xóa những bản ghi cũ cho email đã đăng ký ngày trước hôm nay mà chưa active
+        userRepository.deleteByEmailAndRegistrationDateBeforeAndIsActiveFalse(createUserDTO.getEmail(), startDay);
+
+        //Kiểm tra newPass và ConfirmPass có trùng nhau hay không
         if (!createUserDTO.getPassword().equals(createUserDTO.getConfirmPassword())) {
             throw new RuntimeException("ConfirmEqualNewPassword");
         }
         User user = objectMapper.convertValue(createUserDTO, User.class);  //Chuyển đổi đối tượng createUserDTO<dữ liệu người dùng nhập vào> sang User để lưu vào dữ liệu . Điều này có nghĩa là dữ liệu createUserDTO sẽ được sao chép vào User và lưu vào database vì DTO sẽ không trực tiếp lưu vào DB
-        user.setPassword(passwordEncoder.encode(createUserDTO.getPassword()));  //Mã hóa password
-        String otpCode = generateOtp();
+        user.setPassword(passwordEncoder.encode(createUserDTO.getPassword()));  //Mã hóa password trước khi lưu vào DB
+
+        String otpCode = generateOtp();   //Tạo mã OTP
         user.setOtpCode(otpCode);
         user.setCreateAt(LocalDateTime.now());    //Thiết lập time tạo user
         LocalDateTime expiryTime = LocalDateTime.now().plusMinutes(OTP_EXPIRATION_MINUTES);   //Set Thời gian hết hạn
@@ -98,24 +117,32 @@ public class UserService {
         userRepository.save(user);
         UserResponseDTO userResponseDTO = objectMapper.convertValue(user, UserResponseDTO.class);
 
-        //Logic gửi mail khi user đăng ký tài khoản
+        //Logic gửi mail khi user đăng ký tài khoản và xác thực bằng OTP bằng template
+        String templatePath = "templates/otp_email_template.html";
+        String emailTemplate = new String(Files.readAllBytes(Paths.get(templatePath)));
+        String emailContent = emailTemplate.replace("[EMAIL]", createUserDTO.getEmail())
+                                           .replace("[OTP_CODE]", otpCode);
         MailEntity mailEntity = new MailEntity();
         mailEntity.setEmail(createUserDTO.getEmail());
         mailEntity.setSubject("Verify Account");
-        mailEntity.setContent("Your OTP is code is: " + otpCode);
+        mailEntity.setContent(emailContent);
         mailResetPass.sendMailOTP(mailEntity);
         return userResponseDTO;
     }
 
     //VerifyAccount
     public boolean verifyAccount(String email, String code) {
-        Optional<User> user = userRepository.findByEmailAndOtpCode(email,code);
+        Optional<User> user = userRepository.findByEmailAndOtpCode(email, code);
         if (user.isPresent()) {
+            //Nếu đã verify mà user tiếp tục verify thì báo lỗi
+            if (user.get().isActive()) {
+                throw new RuntimeException("OTPVERIFIED");
+            }
             //Kiểm tra OTP đã hết hạn chưa
             if (user.get().getExpiryTime().isBefore(LocalDateTime.now())) {
                 throw new RuntimeException("OTPHasExpired");
             }
-            user.get().setActive(true);
+            user.get().setActive(true);    //KHi user đã xác thực thì đặt trạng thái isActive = true
             userRepository.save(user.get());
 
             // Xóa các bản ghi khác có cùng email nhưng không được kích hoạt
@@ -133,9 +160,8 @@ public class UserService {
             return Optional.of(convertToUserResponseDTO(user.get()));
         }
         return Optional.empty();
-
     }
-    
+
     //Phương thức Update User
     public Optional<UserResponseDTO> updateUser(Long userId, UserAndProfileUpdateDTO userAndProfileUpdateDTO) throws IOException {
         Optional<User> existingUser = userRepository.findById(userId);

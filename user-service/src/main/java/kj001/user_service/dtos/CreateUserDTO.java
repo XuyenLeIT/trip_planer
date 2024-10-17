@@ -19,18 +19,19 @@ public class CreateUserDTO {
     @Size(min = 6, message = "Password must be at least 6 character long")
     private String password;
 
+    @NotBlank(message = "Password is required.")
+    @Size(min = 6, message = "Password must be at least 6 character long")
+    private String confirmPassword;
+
     @NotBlank(message = "Email is required")
     @Email(message = "Email should be valid")
     private String email;
 
     @NotNull(message = "Role is required.")
-    private Roles roles;
+    private Roles role;
 
     private String otpCode;
     private LocalDateTime expiryTime;
     private Gender gender;
-
-    @NotBlank(message = "Password is required.")
-    @Size(min = 6, message = "Password must be at least 6 character long")
-    private String confirmPassword;
+    private LocalDateTime createAt;
 }
